@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  owner
+  staff
+}
+
+enum Language {
+  en
+  pcm
+}
+
+enum OrderStatus {
+  pending_payment
+  paid
+  cancelled
+}
+
+model Vendor {
+  id              String   @id @default(uuid()) @db.Uuid
+  name            String
+  waPhoneNumberId String   @unique @map("wa_phone_number_id")
+  defaultLanguage Language @default(en) @map("default_language")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  users     User[]
+  products  Product[]
+  customers Customer[]
+  orders    Order[]
+
+  @@map("vendors")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  vendorId     String   @map("vendor_id") @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         Role     @default(staff)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+
+  @@index([vendorId])
+  @@map("users")
+}
+
+model Product {
+  id        String   @id @default(uuid()) @db.Uuid
+  vendorId  String   @map("vendor_id") @db.Uuid
+  name      String
+  priceKobo Int      @map("price_kobo")
+  stockQty  Int      @default(0) @map("stock_qty")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendor     Vendor      @relation(fields: [vendorId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([vendorId])
+  @@map("products")
+}
+
+model Customer {
+  id        String   @id @default(uuid()) @db.Uuid
+  vendorId  String   @map("vendor_id") @db.Uuid
+  waNumber  String   @map("wa_number")
+  language  Language @default(en)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  vendor Vendor  @relation(fields: [vendorId], references: [id])
+  orders Order[]
+
+  @@unique([vendorId, waNumber])
+  @@map("customers")
+}
+
+model Order {
+  id         String      @id @default(uuid()) @db.Uuid
+  vendorId   String      @map("vendor_id") @db.Uuid
+  customerId String      @map("customer_id") @db.Uuid
+  status     OrderStatus @default(pending_payment)
+  totalKobo  Int         @map("total_kobo")
+  createdAt  DateTime    @default(now()) @map("created_at")
+  updatedAt  DateTime    @updatedAt @map("updated_at")
+
+  vendor   Vendor      @relation(fields: [vendorId], references: [id])
+  customer Customer    @relation(fields: [customerId], references: [id])
+  items    OrderItem[]
+
+  @@index([vendorId])
+  @@index([customerId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String @id @default(uuid()) @db.Uuid
+  orderId       String @map("order_id") @db.Uuid
+  productId     String @map("product_id") @db.Uuid
+  quantity      Int
+  unitPriceKobo Int    @map("unit_price_kobo")
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
+}

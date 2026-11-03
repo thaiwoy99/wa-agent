@@ -1,0 +1,16 @@
+services:
+  db:
+    image: postgres:17
+    container_name: wa-agent-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wa_user
+      POSTGRES_PASSWORD: wa_password
+      POSTGRES_DB: wa_agent
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
