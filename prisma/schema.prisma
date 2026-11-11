@@ -23,6 +23,11 @@ enum OrderStatus {
   cancelled
 }
 
+enum Direction {
+  inbound
+  outbound
+}
+
 model Vendor {
   id              String   @id @default(uuid()) @db.Uuid
   name            String
@@ -31,10 +36,12 @@ model Vendor {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  users     User[]
-  products  Product[]
-  customers Customer[]
-  orders    Order[]
+  users         User[]
+  products      Product[]
+  customers     Customer[]
+  orders        Order[]
+  conversations Conversation[]
+  messages      Message[]
 
   @@map("vendors")
 }
@@ -79,8 +86,9 @@ model Customer {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  vendor Vendor  @relation(fields: [vendorId], references: [id])
-  orders Order[]
+  vendor       Vendor        @relation(fields: [vendorId], references: [id])
+  orders       Order[]
+  conversation Conversation?
 
   @@unique([vendorId, waNumber])
   @@map("customers")
@@ -116,4 +124,36 @@ model OrderItem {
 
   @@index([orderId])
   @@map("order_items")
+}
+
+model Conversation {
+  id            String   @id @default(uuid()) @db.Uuid
+  vendorId      String   @map("vendor_id") @db.Uuid
+  customerId    String   @unique @map("customer_id") @db.Uuid
+  lastMessageAt DateTime @default(now()) @map("last_message_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  vendor   Vendor    @relation(fields: [vendorId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  messages Message[]
+
+  @@index([vendorId, lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+model Message {
+  id             String    @id @default(uuid()) @db.Uuid
+  vendorId       String    @map("vendor_id") @db.Uuid
+  conversationId String    @map("conversation_id") @db.Uuid
+  direction      Direction
+  waMessageId    String?   @unique @map("wa_message_id")
+  body           String
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  vendor       Vendor       @relation(fields: [vendorId], references: [id])
+  conversation Conversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
+  @@map("messages")
 }
