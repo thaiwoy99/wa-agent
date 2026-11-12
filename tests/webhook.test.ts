@@ -1,12 +1,9 @@
-import crypto from "node:crypto";
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { app } from "../src/app";
+import { inboundQueue } from "../src/queues/inbound.queue";
+import { sign, textMessagePayload } from "./helpers";
 
-function sign(body: string, secret = process.env.WHATSAPP_APP_SECRET!) {
-  const hash = crypto.createHmac("sha256", secret).update(body).digest("hex");
-  return `sha256=${hash}`;
-}
 
 describe("GET /webhooks/whatsapp (Meta's URL check)", () => {
   it("returns the challenge when the token is right", async () => {
@@ -73,5 +70,87 @@ describe("POST /webhooks/whatsapp (signature check)", () => {
       .send(changed);
 
     expect(res.status).toBe(401);
+  });
+});
+
+
+describe("POST /webhooks/whatsapp (adding jobs to the queue)", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function postSigned(payload: unknown) {
+    const body = JSON.stringify(payload);
+    return request(app)
+      .post("/webhooks/whatsapp")
+      .set("Content-Type", "application/json")
+      .set("X-Hub-Signature-256", sign(body))
+      .send(body);
+  }
+
+  it("puts a text message in the queue", async () => {
+    const res = await postSigned(textMessagePayload("wamid.TEST1", "How much is jollof?"));
+
+    expect(res.status).toBe(200);
+
+    const job = await inboundQueue.getJob("wamid.TEST1");
+    expect(job?.data).toEqual({
+      waMessageId: "wamid.TEST1",
+      phoneNumberId: "wa-vendor-a",
+      from: "2348011111111",
+      type: "text",
+      text: "How much is jollof?",
+      timestamp: "1762850000",
+    });
+  });
+
+  it("adds only one job when the same message arrives twice", async () => {
+    const payload = textMessagePayload("wamid.TEST2", "Hello");
+
+    await postSigned(payload);
+    const second = await postSigned(payload);
+
+    expect(second.status).toBe(200);
+    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(1);
+  });
+
+  it("ignores status updates but still answers 200", async () => {
+    const statusUpdate = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              field: "messages",
+              value: {
+                metadata: { phone_number_id: "wa-vendor-a" },
+                statuses: [{ id: "wamid.OUT1", status: "delivered" }],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const res = await postSigned(statusUpdate);
+
+    expect(res.status).toBe(200);
+    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(0);
+  });
+
+  it("answers 200 to a payload it doesn't understand", async () => {
+    const res = await postSigned({ something: "unexpected" });
+
+    expect(res.status).toBe(200);
+    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(0);
+  });
+
+  it("answers 500 when the queue fails, so Meta will retry", async () => {
+    vi.spyOn(inboundQueue, "add").mockRejectedValue(new Error("Redis is down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await postSigned(textMessagePayload("wamid.TEST3", "Hello"));
+
+    expect(res.status).toBe(500);
   });
 });

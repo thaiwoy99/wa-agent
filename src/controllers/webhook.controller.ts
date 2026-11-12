@@ -1,5 +1,6 @@
 import type { Request, Response } from "express";
 import { env } from "../config/env";
+import * as webhookService from "../services/webhook.service";
 
 export function verifyWebhook(req: Request, res: Response) {
   const mode = req.query["hub.mode"];
@@ -15,5 +16,6 @@ export function verifyWebhook(req: Request, res: Response) {
 }
 
 export async function receiveWebhook(req: Request, res: Response) {
+  await webhookService.enqueueInboundMessages(req.body);
   res.sendStatus(200);
 }
