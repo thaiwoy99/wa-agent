@@ -55,3 +55,14 @@ export function textMessagePayload(waMessageId: string, text: string) {
     ],
   };
 }
+export function createFakeSender() {
+  const sent: { phoneNumberId: string; to: string; text: string }[] = [];
+
+  return {
+    sent,
+    async sendText(message: { phoneNumberId: string; to: string; text: string }) {
+      sent.push(message);
+      return { waMessageId: `wamid.OUT${sent.length}` };
+    },
+  };
+}
