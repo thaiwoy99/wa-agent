@@ -8,6 +8,8 @@ const envSchema = z.object({
   WHATSAPP_APP_SECRET: z.string().min(1),
   WHATSAPP_VERIFY_TOKEN: z.string().min(1),
     REDIS_URL: z.url(),
+    
+  WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
+  WHATSAPP_API_VERSION: z.string().default("v26.0"),
 });
-
 export const env = envSchema.parse(process.env);

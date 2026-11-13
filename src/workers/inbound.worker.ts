@@ -1,21 +1,30 @@
-import { Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import { env } from "../config/env";
 import { prisma } from "../config/db";
-import { consoleSender } from "../messaging/consoleSender";
+import { createMessageSender } from "../messaging";
+import { PermanentSendError } from "../messaging/sendErrors";
 import { INBOUND_QUEUE, type InboundMessageJob } from "../queues/inbound.queue";
 import { handleInboundMessage } from "../services/inbound.service";
+
+const sender = createMessageSender();
 
 const worker = new Worker<InboundMessageJob>(
   INBOUND_QUEUE,
   async (job) => {
-    await handleInboundMessage(job.data, consoleSender);
+    try {
+      await handleInboundMessage(job.data, sender);
+    } catch (err) {
+      if (err instanceof PermanentSendError) {
+        throw new UnrecoverableError(err.message);
+      }
+      throw err;
+    }
   },
   {
     connection: { url: env.REDIS_URL },
     concurrency: 1,
   },
 );
-
 worker.on("ready", () => {
   console.log("Worker is ready and waiting for jobs");
 });
