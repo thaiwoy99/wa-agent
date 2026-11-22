@@ -88,3 +88,12 @@ export function saveReply(input: ReplyInput) {
     }),
   ]);
 }
+
+export async function findRecentMessages(conversationId: string, limit = 10) {
+  const messages = await prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  return messages.reverse();
+}

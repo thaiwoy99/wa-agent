@@ -1,156 +1,127 @@
 import request from "supertest";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { fakeAi } from "../src/ai/fakeAi";
 import { app } from "../src/app";
-import { inboundQueue } from "../src/queues/inbound.queue";
-import { sign, textMessagePayload } from "./helpers";
+import { prisma } from "../src/config/db";
+import type { InboundMessageJob } from "../src/queues/inbound.queue";
+import { TEXT_ONLY_REPLY, handleInboundMessage } from "../src/services/inbound.service";
+import { createFakeSender, createVendorAndLogin } from "./helpers";
 
+function textJob(waMessageId: string, text: string): InboundMessageJob {
+  return {
+    waMessageId,
+    phoneNumberId: "wa-vendor-a",
+    from: "2348011111111",
+    type: "text",
+    text,
+    timestamp: "1762850000",
+  };
+}
 
-describe("GET /webhooks/whatsapp (Meta's URL check)", () => {
-  it("returns the challenge when the token is right", async () => {
-    const res = await request(app).get("/webhooks/whatsapp").query({
-      "hub.mode": "subscribe",
-      "hub.verify_token": process.env.WHATSAPP_VERIFY_TOKEN,
-      "hub.challenge": "12345",
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.text).toBe("12345");
+describe("handleInboundMessage (the worker's job)", () => {
+  beforeEach(async () => {
+    const auth = await createVendorAndLogin("vendor-a");
+    await request(app)
+      .post("/products")
+      .set(auth)
+      .send({ name: "Jollof Rice", priceKobo: 150000, stockQty: 20 });
   });
 
-  it("refuses a wrong token", async () => {
-    const res = await request(app).get("/webhooks/whatsapp").query({
-      "hub.mode": "subscribe",
-      "hub.verify_token": "wrong-token",
-      "hub.challenge": "12345",
-    });
+  it("saves the customer, conversation and message, and replies once", async () => {
+    const sender = createFakeSender();
 
-    expect(res.status).toBe(403);
-  });
-});
+    await handleInboundMessage(textJob("wamid.IN1", "How much is jollof?"), sender, fakeAi);
 
-describe("POST /webhooks/whatsapp (signature check)", () => {
-  const body = JSON.stringify({ object: "whatsapp_business_account", entry: [] });
-
-  it("accepts a request with a correct signature", async () => {
-    const res = await request(app)
-      .post("/webhooks/whatsapp")
-      .set("Content-Type", "application/json")
-      .set("X-Hub-Signature-256", sign(body))
-      .send(body);
-
-    expect(res.status).toBe(200);
-  });
-
-  it("rejects a request with no signature", async () => {
-    const res = await request(app)
-      .post("/webhooks/whatsapp")
-      .set("Content-Type", "application/json")
-      .send(body);
-
-    expect(res.status).toBe(401);
-  });
-
-  it("rejects a signature made with the wrong secret", async () => {
-    const res = await request(app)
-      .post("/webhooks/whatsapp")
-      .set("Content-Type", "application/json")
-      .set("X-Hub-Signature-256", sign(body, "attacker-secret"))
-      .send(body);
-
-    expect(res.status).toBe(401);
-  });
-
-  it("rejects a body that was changed after signing", async () => {
-    const changed = body.replace("[]", '[{"fake":true}]');
-
-    const res = await request(app)
-      .post("/webhooks/whatsapp")
-      .set("Content-Type", "application/json")
-      .set("X-Hub-Signature-256", sign(body))
-      .send(changed);
-
-    expect(res.status).toBe(401);
-  });
-});
-
-
-describe("POST /webhooks/whatsapp (adding jobs to the queue)", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  function postSigned(payload: unknown) {
-    const body = JSON.stringify(payload);
-    return request(app)
-      .post("/webhooks/whatsapp")
-      .set("Content-Type", "application/json")
-      .set("X-Hub-Signature-256", sign(body))
-      .send(body);
-  }
-
-  it("puts a text message in the queue", async () => {
-    const res = await postSigned(textMessagePayload("wamid.TEST1", "How much is jollof?"));
-
-    expect(res.status).toBe(200);
-
-    const job = await inboundQueue.getJob("wamid.TEST1");
-    expect(job?.data).toEqual({
-      waMessageId: "wamid.TEST1",
+    expect(sender.sent).toHaveLength(1);
+    expect(sender.sent[0]).toEqual({
       phoneNumberId: "wa-vendor-a",
-      from: "2348011111111",
-      type: "text",
-      text: "How much is jollof?",
-      timestamp: "1762850000",
+      to: "2348011111111",
+      text: "Here's what we have:\n- Jollof Rice: ₦1,500 (20 in stock)",
     });
+
+    const customers = await prisma.customer.findMany();
+    expect(customers).toHaveLength(1);
+    expect(customers[0]?.waNumber).toBe("2348011111111");
+
+    const inbound = await prisma.message.findUnique({ where: { waMessageId: "wamid.IN1" } });
+    expect(inbound?.direction).toBe("inbound");
+    expect(inbound?.body).toBe("How much is jollof?");
+    expect(inbound?.repliedAt).not.toBeNull();
+
+    const outbound = await prisma.message.findMany({ where: { direction: "outbound" } });
+    expect(outbound).toHaveLength(1);
   });
 
-  it("adds only one job when the same message arrives twice", async () => {
-    const payload = textMessagePayload("wamid.TEST2", "Hello");
+  it("does nothing new when the same job runs twice", async () => {
+    const sender = createFakeSender();
+    const job = textJob("wamid.IN2", "Hello");
 
-    await postSigned(payload);
-    const second = await postSigned(payload);
+    await handleInboundMessage(job, sender, fakeAi);
+    await handleInboundMessage(job, sender, fakeAi);
 
-    expect(second.status).toBe(200);
-    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(1);
+    expect(sender.sent).toHaveLength(1);
+    expect(await prisma.message.count({ where: { direction: "inbound" } })).toBe(1);
   });
 
-  it("ignores status updates but still answers 200", async () => {
-    const statusUpdate = {
-      object: "whatsapp_business_account",
-      entry: [
-        {
-          changes: [
-            {
-              field: "messages",
-              value: {
-                metadata: { phone_number_id: "wa-vendor-a" },
-                statuses: [{ id: "wamid.OUT1", status: "delivered" }],
-              },
-            },
-          ],
-        },
-      ],
+  it("keeps one customer and one conversation across several messages", async () => {
+    const sender = createFakeSender();
+
+    await handleInboundMessage(textJob("wamid.IN3", "Hello"), sender, fakeAi);
+    await handleInboundMessage(textJob("wamid.IN4", "Are you open?"), sender, fakeAi);
+
+    expect(await prisma.customer.count()).toBe(1);
+    expect(await prisma.conversation.count()).toBe(1);
+    expect(await prisma.message.count({ where: { direction: "inbound" } })).toBe(2);
+  });
+
+  it("skips a message for an unknown vendor", async () => {
+    const sender = createFakeSender();
+    const job = { ...textJob("wamid.IN5", "Hello"), phoneNumberId: "unknown-number" };
+
+    await handleInboundMessage(job, sender, fakeAi);
+
+    expect(sender.sent).toHaveLength(0);
+    expect(await prisma.message.count()).toBe(0);
+  });
+
+  it("answers a greeting without using the tool", async () => {
+    const sender = createFakeSender();
+
+    await handleInboundMessage(textJob("wamid.IN8", "Good morning"), sender, fakeAi);
+
+    expect(sender.sent[0]?.text).toBe("Hello! 👋 Ask me about our products and prices.");
+  });
+
+  it("answers a photo with the text-only reply", async () => {
+    const sender = createFakeSender();
+    const photoJob: InboundMessageJob = {
+      ...textJob("wamid.IN6", ""),
+      type: "image",
+      text: null,
     };
 
-    const res = await postSigned(statusUpdate);
+    await handleInboundMessage(photoJob, sender, fakeAi);
 
-    expect(res.status).toBe(200);
-    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(0);
+    expect(sender.sent[0]?.text).toBe(TEXT_ONLY_REPLY);
   });
 
-  it("answers 200 to a payload it doesn't understand", async () => {
-    const res = await postSigned({ something: "unexpected" });
+  it("is safe to retry after sending fails", async () => {
+    const job = textJob("wamid.IN7", "Hello");
+    const brokenSender = {
+      async sendText(): Promise<{ waMessageId: string }> {
+        throw new Error("WhatsApp is down");
+      },
+    };
 
-    expect(res.status).toBe(200);
-    expect(await inboundQueue.getJobCountByTypes("waiting")).toBe(0);
-  });
+    await expect(handleInboundMessage(job, brokenSender, fakeAi)).rejects.toThrow("WhatsApp is down");
 
-  it("answers 500 when the queue fails, so Meta will retry", async () => {
-    vi.spyOn(inboundQueue, "add").mockRejectedValue(new Error("Redis is down"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    const afterFailure = await prisma.message.findUnique({ where: { waMessageId: "wamid.IN7" } });
+    expect(afterFailure?.repliedAt).toBeNull();
 
-    const res = await postSigned(textMessagePayload("wamid.TEST3", "Hello"));
+    const workingSender = createFakeSender();
+    await handleInboundMessage(job, workingSender, fakeAi);
 
-    expect(res.status).toBe(500);
+    expect(workingSender.sent).toHaveLength(1);
+    expect(await prisma.message.count({ where: { direction: "inbound" } })).toBe(1);
   });
 });

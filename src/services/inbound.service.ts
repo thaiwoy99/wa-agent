@@ -1,14 +1,17 @@
+import type { AiService } from "../ai/aiService";
+import { toChatMessages } from "../ai/history";
+import { createTools } from "../ai/tools";
 import type { MessageSender } from "../messaging/sender";
 import * as messageModel from "../models/message.model";
 import * as vendorModel from "../models/vendor.model";
 import type { InboundMessageJob } from "../queues/inbound.queue";
 
 export const TEXT_ONLY_REPLY = "Sorry, I can only read text messages for now.";
-export const RECEIVED_REPLY = "Thanks, we got your message! We'll reply soon.";
 
 export async function handleInboundMessage(
   job: InboundMessageJob,
   sender: MessageSender,
+  ai: AiService,
 ) {
   const vendor = await vendorModel.findVendorByPhoneNumberId(job.phoneNumberId);
   if (!vendor) {
@@ -26,7 +29,17 @@ export async function handleInboundMessage(
     return;
   }
 
-  const replyText = job.type === "text" ? RECEIVED_REPLY : TEXT_ONLY_REPLY;
+  let replyText: string;
+
+  if (job.type !== "text") {
+    replyText = TEXT_ONLY_REPLY;
+  } else {
+    const recentMessages = await messageModel.findRecentMessages(inbound.conversationId);
+    replyText = await ai.generateReply({
+      history: toChatMessages(recentMessages),
+      tools: createTools(vendor.id),
+    });
+  }
 
   const sent = await sender.sendText({
     phoneNumberId: job.phoneNumberId,

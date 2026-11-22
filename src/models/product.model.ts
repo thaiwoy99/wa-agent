@@ -34,3 +34,10 @@ export async function updateProduct(
   });
   return result.count;
 }
+
+export function findActiveProducts(vendorId: string) {
+  return prisma.product.findMany({
+    where: { vendorId, isActive: true },
+    orderBy: { name: "asc" },
+  });
+}

@@ -1,6 +1,7 @@
 import { UnrecoverableError, Worker } from "bullmq";
 import { env } from "../config/env";
 import { prisma } from "../config/db";
+import { fakeAi } from "../ai/fakeAi";
 import { createMessageSender } from "../messaging";
 import { PermanentSendError } from "../messaging/sendErrors";
 import { INBOUND_QUEUE, type InboundMessageJob } from "../queues/inbound.queue";
@@ -12,7 +13,7 @@ const worker = new Worker<InboundMessageJob>(
   INBOUND_QUEUE,
   async (job) => {
     try {
-      await handleInboundMessage(job.data, sender);
+      await handleInboundMessage(job.data, sender, fakeAi);
     } catch (err) {
       if (err instanceof PermanentSendError) {
         throw new UnrecoverableError(err.message);
@@ -25,6 +26,7 @@ const worker = new Worker<InboundMessageJob>(
     concurrency: 1,
   },
 );
+
 worker.on("ready", () => {
   console.log("Worker is ready and waiting for jobs");
 });
