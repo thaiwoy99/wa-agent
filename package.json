@@ -7,10 +7,11 @@
     "test": "tests"
   },
   "scripts": {
-  "dev": "tsx watch src/server.ts",
-  "worker": "tsx watch src/workers/inbound.worker.ts",
-  "test": "vitest run"
-},
+    "dev": "tsx watch src/server.ts",
+    "worker": "tsx watch src/workers/inbound.worker.ts",
+    "test": "vitest run",
+    "start:all": "concurrently -n api,worker \"npm run dev\" \"npm run worker\""
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
@@ -33,6 +34,7 @@
     "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
+    "concurrently": "^10.0.7",
     "prisma": "^7.10.0",
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",

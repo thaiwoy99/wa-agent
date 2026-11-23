@@ -61,7 +61,9 @@ export function createGroqAi(config: GroqAiConfig): AiService {
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,
+        model: config.model,        
+        include_reasoning: false,
+
         messages,
         tools: tools.map((t) => ({
           type: "function",

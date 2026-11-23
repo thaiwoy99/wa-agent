@@ -11,5 +11,8 @@ const envSchema = z.object({
     
   WHATSAPP_ACCESS_TOKEN: z.string().min(1).optional(),
   WHATSAPP_API_VERSION: z.string().default("v26.0"),
+
+    GROQ_API_KEY: z.string().min(1).optional(),
+  AI_MODEL: z.string().default("openai/gpt-oss-120b"),
 });
 export const env = envSchema.parse(process.env);
