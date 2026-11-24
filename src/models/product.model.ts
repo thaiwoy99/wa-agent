@@ -1,4 +1,5 @@
 import { prisma } from "../config/db";
+import type { Prisma } from "../generated/prisma/client";
 import type {
   CreateProductInput,
   UpdateProductInput,
@@ -40,4 +41,23 @@ export function findActiveProducts(vendorId: string) {
     where: { vendorId, isActive: true },
     orderBy: { name: "asc" },
   });
+}
+
+export async function reserveStock(
+  db: Prisma.TransactionClient,
+  vendorId: string,
+  productId: string,
+  quantity: number,
+) {
+  const result = await db.product.updateMany({
+    where: {
+      id: productId,
+      vendorId,
+      isActive: true,
+      stockQty: { gte: quantity },
+    },
+    data: { stockQty: { decrement: quantity } },
+  });
+
+  return result.count === 1;
 }
