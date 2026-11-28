@@ -15,7 +15,7 @@ export const fakeAi: AiService = {
     if (isAboutProducts(text)) {
       const tool = tools.find((t) => t.name === "list_products");
       if (tool) {
-        const result = await tool.run();
+        const result = await tool.run({});
         return `Here's what we have:\n${result}`;
       }
     }

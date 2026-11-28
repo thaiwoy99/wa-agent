@@ -11,7 +11,7 @@ function groqText(text: string) {
   );
 }
 
-function groqToolCall(name: string) {
+function groqToolCall(name: string, args = "{}") {
   return new Response(
     JSON.stringify({
       choices: [
@@ -19,9 +19,7 @@ function groqToolCall(name: string) {
           message: {
             role: "assistant",
             content: null,
-            tool_calls: [
-              { id: "call_1", type: "function", function: { name, arguments: "{}" } },
-            ],
+            tool_calls: [{ id: "call_1", type: "function", function: { name, arguments: args } }],
           },
         },
       ],
@@ -30,10 +28,11 @@ function groqToolCall(name: string) {
   );
 }
 
-function fakeListProducts() {
+function fakeTool(name: string) {
   const tool: Tool = {
-    name: "list_products",
-    description: "Get products",
+    name,
+    description: "A test tool",
+    parameters: { type: "object", properties: {} },
     run: vi.fn(async () => "- Fried Rice: ₦1,800 (12 in stock)"),
   };
   return tool;
@@ -49,14 +48,14 @@ describe("Groq AI", () => {
 
     const reply = await ai.generateReply({
       history: [{ role: "customer", text: "Good morning" }],
-      tools: [fakeListProducts()],
+      tools: [fakeTool("list_products")],
     });
 
     expect(reply).toBe("Good morning! How can I help?");
   });
 
   it("runs the tool the AI asks for, then returns its final reply", async () => {
-    const tool = fakeListProducts();
+    const tool = fakeTool("list_products");
     const fetchMock = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(groqToolCall("list_products"))
@@ -71,12 +70,44 @@ describe("Groq AI", () => {
     expect(tool.run).toHaveBeenCalledTimes(1);
 
     const secondRequest = JSON.parse(fetchMock.mock.calls[1]![1]!.body as string);
-    const lastMessage = secondRequest.messages.at(-1);
-    expect(lastMessage).toEqual({
+    expect(secondRequest.messages.at(-1)).toEqual({
       role: "tool",
       tool_call_id: "call_1",
       content: "- Fried Rice: ₦1,800 (12 in stock)",
     });
+  });
+
+  it("passes the AI's input to the tool", async () => {
+    const tool = fakeTool("create_order");
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        groqToolCall(
+          "create_order",
+          JSON.stringify({ items: [{ productName: "Fried Rice", quantity: 2 }] }),
+        ),
+      )
+      .mockResolvedValueOnce(groqText("Done!"));
+
+    await ai.generateReply({
+      history: [{ role: "customer", text: "I want 2 fried rice" }],
+      tools: [tool],
+    });
+
+    expect(tool.run).toHaveBeenCalledWith({
+      items: [{ productName: "Fried Rice", quantity: 2 }],
+    });
+  });
+
+  it("sends each tool's parameters to Groq", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(groqText("Hi"));
+
+    await ai.generateReply({
+      history: [{ role: "customer", text: "Hi" }],
+      tools: [fakeTool("list_products")],
+    });
+
+    const request = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string);
+    expect(request.tools[0].function.parameters).toEqual({ type: "object", properties: {} });
   });
 
   it("stops after 5 rounds and sends the fallback reply", async () => {
@@ -86,7 +117,7 @@ describe("Groq AI", () => {
 
     const reply = await ai.generateReply({
       history: [{ role: "customer", text: "Hello" }],
-      tools: [fakeListProducts()],
+      tools: [fakeTool("list_products")],
     });
 
     expect(reply).toBe(FALLBACK_REPLY);

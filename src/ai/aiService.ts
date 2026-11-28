@@ -6,7 +6,8 @@ export type ChatMessage = {
 export type Tool = {
   name: string;
   description: string;
-  run: () => Promise<string>;
+  parameters: Record<string, unknown>;
+  run: (input: unknown) => Promise<string>;
 };
 
 export interface AiService {

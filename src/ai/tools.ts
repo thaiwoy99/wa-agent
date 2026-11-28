@@ -1,12 +1,17 @@
+import { z } from "zod";
 import * as productModel from "../models/product.model";
 import { formatNaira } from "../utils/money";
 import type { Tool } from "./aiService";
+import { toToolParameters } from "./toolParameters";
+
+const noInput = z.object({});
 
 export function createTools(vendorId: string): Tool[] {
   const listProducts: Tool = {
     name: "list_products",
     description:
       "Get the shop's products with their prices and stock. Use this before answering any question about products, prices or availability.",
+    parameters: toToolParameters(noInput),
     run: async () => {
       const products = await productModel.findActiveProducts(vendorId);
 

@@ -52,6 +52,14 @@ type GroqAiConfig = {
   timeoutMs?: number;
 };
 
+function parseArguments(raw: string): unknown {
+  try {
+    return JSON.parse(raw || "{}");
+  } catch {
+    return null;
+  }
+}
+
 export function createGroqAi(config: GroqAiConfig): AiService {
   async function askGroq(messages: GroqMessage[], tools: Tool[]) {
     const res = await fetch(GROQ_URL, {
@@ -61,16 +69,15 @@ export function createGroqAi(config: GroqAiConfig): AiService {
         Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,        
+        model: config.model,
         include_reasoning: false,
-
         messages,
         tools: tools.map((t) => ({
           type: "function",
           function: {
             name: t.name,
             description: t.description,
-            parameters: { type: "object", properties: {} },
+            parameters: t.parameters,
           },
         })),
       }),
@@ -117,7 +124,7 @@ export function createGroqAi(config: GroqAiConfig): AiService {
         for (const call of toolCalls) {
           const tool = tools.find((t) => t.name === call.function.name);
           const result = tool
-            ? await tool.run()
+            ? await tool.run(parseArguments(call.function.arguments))
             : `There is no tool called ${call.function.name}.`;
 
           messages.push({ role: "tool", tool_call_id: call.id, content: result });
