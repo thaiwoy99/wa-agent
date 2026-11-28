@@ -17,15 +17,15 @@ enum Language {
   pcm
 }
 
+enum Direction {
+  inbound
+  outbound
+}
+
 enum OrderStatus {
   pending_payment
   paid
   cancelled
-}
-
-enum Direction {
-  inbound
-  outbound
 }
 
 model Vendor {
@@ -95,17 +95,19 @@ model Customer {
 }
 
 model Order {
-  id         String      @id @default(uuid()) @db.Uuid
-  vendorId   String      @map("vendor_id") @db.Uuid
-  customerId String      @map("customer_id") @db.Uuid
-  status     OrderStatus @default(pending_payment)
-  totalKobo  Int         @map("total_kobo")
-  createdAt  DateTime    @default(now()) @map("created_at")
-  updatedAt  DateTime    @updatedAt @map("updated_at")
+  id              String      @id @default(uuid()) @db.Uuid
+  vendorId        String      @map("vendor_id") @db.Uuid
+  customerId      String      @map("customer_id") @db.Uuid
+  status          OrderStatus @default(pending_payment)
+  totalKobo       Int         @map("total_kobo")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  sourceMessageId String      @unique @map("source_message_id") @db.Uuid
 
-  vendor   Vendor      @relation(fields: [vendorId], references: [id])
-  customer Customer    @relation(fields: [customerId], references: [id])
-  items    OrderItem[]
+  vendor        Vendor      @relation(fields: [vendorId], references: [id])
+  customer      Customer    @relation(fields: [customerId], references: [id])
+  sourceMessage Message     @relation(fields: [sourceMessageId], references: [id])
+  items         OrderItem[]
 
   @@index([vendorId])
   @@index([customerId])
@@ -154,6 +156,7 @@ model Message {
 
   vendor       Vendor       @relation(fields: [vendorId], references: [id])
   conversation Conversation @relation(fields: [conversationId], references: [id])
+  order        Order?
 
   @@index([conversationId, createdAt])
   @@map("messages")
